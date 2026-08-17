@@ -1,0 +1,5 @@
+# The repo has to be public for free GitHub Pages, so publish only the files
+# the site actually serves. These stay on your machine.
+SETUP.md
+dev-server.js
+schema.sql

@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1">
+<title>Gut Log</title>
+<meta name="theme-color" content="#0f766e">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Gut Log">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icons/icon-180.png">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<!-- ───────────────── Sign in ───────────────── -->
+<section id="view-auth" class="auth-view">
+  <div class="auth-card">
+    <div class="auth-logo">Gut&nbsp;Log</div>
+    <p class="auth-sub">Private symptom &amp; food diary</p>
+
+    <div id="auth-step-email">
+      <label class="field">
+        <span>Email address</span>
+        <input type="email" id="auth-email" autocomplete="email" inputmode="email" placeholder="you@example.com">
+      </label>
+      <button class="btn btn-primary btn-block" id="auth-send">Email me a sign-in link</button>
+      <p class="auth-note">No password. You'll get a link that signs you in and keeps you signed in on this device.</p>
+    </div>
+
+    <div id="auth-step-sent" hidden>
+      <div class="auth-sent-icon">✉️</div>
+      <p class="auth-sent-msg">Check your email — tap the link to sign in.</p>
+      <p class="auth-note">Open the link <strong>on this device</strong>. If it lands in Mail on your iPhone, the app will open automatically.</p>
+      <button class="btn btn-ghost btn-block" id="auth-back">Use a different email</button>
+    </div>
+
+    <p id="auth-error" class="auth-error" hidden></p>
+    <p id="auth-unconfigured" class="auth-error" hidden>
+      This app hasn't been connected to your database yet. Open <code>config.js</code> and paste in your
+      Supabase URL and anon key — see <code>SETUP.md</code>.
+    </p>
+  </div>
+</section>
+
+<!-- ───────────────── App ───────────────── -->
+<div id="app" hidden>
+
+<header class="topbar">
+  <div class="topbar-title" id="topbar-title">Log</div>
+  <div class="topbar-right">
+    <span id="sync-badge" class="sync-badge" hidden></span>
+  </div>
+</header>
+
+<main class="views">
+
+  <!-- ── LOG ── -->
+  <section id="view-log" class="view active">
+    <div class="quick-time" id="quick-time-bar">
+      <span class="qt-label">Logging for</span>
+      <button class="qt-now is-on" id="qt-now">Now</button>
+      <input type="datetime-local" id="qt-when" class="qt-when">
+    </div>
+
+    <h2 class="sec">Symptoms</h2>
+    <div class="tile-grid" id="symptom-tiles"></div>
+
+    <h2 class="sec">Food &amp; drink</h2>
+    <div class="tile-grid">
+      <button class="tile tile-food" data-open="food"><span class="tile-emoji">🍽️</span><span class="tile-label">Log a meal</span></button>
+      <button class="tile tile-food" data-open="drink"><span class="tile-emoji">🥤</span><span class="tile-label">Drink</span></button>
+    </div>
+
+    <h2 class="sec">Medication</h2>
+    <div class="tile-grid" id="med-tiles"></div>
+
+    <h2 class="sec">Context</h2>
+    <div class="tile-grid" id="context-tiles"></div>
+
+    <div id="today-strip" class="today-strip"></div>
+  </section>
+
+  <!-- ── TIMELINE ── -->
+  <section id="view-timeline" class="view">
+    <div class="day-nav">
+      <button class="btn-icon" id="day-prev" aria-label="Previous day">‹</button>
+      <button class="day-label" id="day-label">Today</button>
+      <button class="btn-icon" id="day-next" aria-label="Next day">›</button>
+    </div>
+    <div class="day-summary" id="day-summary"></div>
+    <div id="timeline"></div>
+  </section>
+
+  <!-- ── INSIGHTS ── -->
+  <section id="view-insights" class="view">
+    <div class="seg" id="insight-window">
+      <button class="seg-btn is-on" data-win="8">Within 8h</button>
+      <button class="seg-btn" data-win="4">4h</button>
+      <button class="seg-btn" data-win="24">24h</button>
+    </div>
+    <div class="seg seg-scroll" id="insight-symptom"></div>
+    <div id="insights-body"></div>
+  </section>
+
+  <!-- ── REPORT ── -->
+  <section id="view-report" class="view">
+    <div class="no-print">
+      <h2 class="sec">Doctor report</h2>
+      <div class="range-row">
+        <label class="field"><span>From</span><input type="date" id="rep-from"></label>
+        <label class="field"><span>To</span><input type="date" id="rep-to"></label>
+      </div>
+      <div class="range-quick">
+        <button class="chip" data-days="14">Last 2 weeks</button>
+        <button class="chip" data-days="30">Last 30 days</button>
+        <button class="chip" data-days="90">Last 90 days</button>
+      </div>
+      <button class="btn btn-primary btn-block" id="rep-print">Save as PDF / Print</button>
+      <p class="hint">On iPhone: tap Share → Print → pinch out on the preview → Share → Save to Files.
+        On Windows Chrome: choose “Save as PDF” as the destination.</p>
+    </div>
+    <div id="report-body" class="report"></div>
+  </section>
+
+  <!-- ── SETTINGS ── -->
+  <section id="view-settings" class="view">
+    <h2 class="sec">Daily medications</h2>
+    <p class="hint">These appear as one-tap buttons on the Log screen.</p>
+    <div id="set-daily" class="editlist"></div>
+    <div class="addrow"><input id="add-daily" placeholder="e.g. Omeprazole 20mg"><button class="btn btn-sm" data-add="daily">Add</button></div>
+
+    <h2 class="sec">As-needed medications</h2>
+    <div id="set-prn" class="editlist"></div>
+    <div class="addrow"><input id="add-prn" placeholder="e.g. Gas-X"><button class="btn btn-sm" data-add="prn">Add</button></div>
+
+    <h2 class="sec">Food trigger tags</h2>
+    <p class="hint">Tap a tag to remove it. These are what the trigger analysis looks at.</p>
+    <div id="set-tags" class="editlist editlist-wrap"></div>
+    <div class="addrow"><input id="add-tag" placeholder="e.g. FODMAPs"><button class="btn btn-sm" data-add="tag">Add</button></div>
+
+    <h2 class="sec">Your data</h2>
+    <div class="stack">
+      <button class="btn btn-block" id="btn-export">Export everything as CSV</button>
+      <button class="btn btn-block" id="btn-refresh">Force re-sync</button>
+      <button class="btn btn-block btn-danger" id="btn-signout">Sign out</button>
+    </div>
+    <p class="hint" id="acct-line"></p>
+
+    <h2 class="sec">Reminders</h2>
+    <p class="hint">This app can't send you notifications on iPhone. Set two repeating reminders in Apple's
+      Reminders app instead — see <strong>SETUP.md</strong> step 6. They take about two minutes and are far more reliable.</p>
+
+    <p class="hint version-line">Gut Log · <span id="entry-count"></span></p>
+  </section>
+
+</main>
+
+<nav class="tabbar">
+  <button class="tab is-on" data-view="log"><span>✚</span>Log</button>
+  <button class="tab" data-view="timeline"><span>☰</span>Timeline</button>
+  <button class="tab" data-view="insights"><span>◱</span>Insights</button>
+  <button class="tab" data-view="report"><span>▤</span>Report</button>
+  <button class="tab" data-view="settings"><span>⚙</span>Settings</button>
+</nav>
+
+</div><!-- /#app -->
+
+<!-- ───────────────── Entry sheet ───────────────── -->
+<div id="sheet-backdrop" class="sheet-backdrop" hidden></div>
+<div id="sheet" class="sheet" hidden>
+  <div class="sheet-grab"></div>
+  <div class="sheet-head">
+    <button class="btn-text" id="sheet-cancel">Cancel</button>
+    <div class="sheet-title" id="sheet-title"></div>
+    <button class="btn-text btn-text-strong" id="sheet-save">Save</button>
+  </div>
+  <div class="sheet-body" id="sheet-body"></div>
+</div>
+
+<div id="toast" class="toast" hidden></div>
+
+<script src="config.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
