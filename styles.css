@@ -140,6 +140,42 @@ code{background:var(--surface-2);padding:1px 5px;border-radius:5px;font-size:.9e
 .tile-food{border-color:var(--accent);color:var(--accent)}
 .tile-logged{border-color:var(--accent);background:var(--accent-soft)}
 
+/* ── Daily medication checklist ── */
+.check-group{
+  font-size:11.5px;letter-spacing:.07em;text-transform:uppercase;
+  color:var(--muted);font-weight:700;margin:12px 0 6px;
+}
+.check-group:first-child{margin-top:0}
+.check-row{
+  display:flex;align-items:center;gap:12px;width:100%;
+  background:var(--surface);border:1px solid var(--line);border-radius:12px;
+  padding:12px 14px;margin-bottom:8px;cursor:pointer;text-align:left;min-height:54px;
+}
+.check-row:active{background:var(--surface-2)}
+.check-row.is-done{background:var(--accent-soft);border-color:var(--accent)}
+.check-box{
+  width:26px;height:26px;flex:none;border-radius:50%;
+  border:2px solid var(--line);display:flex;align-items:center;justify-content:center;
+  font-size:15px;font-weight:800;line-height:1;color:#fff;
+}
+.check-row.is-done .check-box{background:var(--accent);border-color:var(--accent)}
+.check-name{flex:1;font-weight:600;font-size:15px;line-height:1.3;min-width:0}
+.check-row.is-done .check-name{color:var(--accent)}
+.check-time{
+  font-size:12.5px;color:var(--muted);flex:none;
+  font-variant-numeric:tabular-nums;white-space:nowrap;
+}
+
+/* ── AM/PM toggles in Settings ── */
+.el-name{flex:1;min-width:0;word-break:break-word}
+.slot-toggles{display:flex;gap:5px;flex:none}
+.slot-chip{
+  border:1px solid var(--line);background:var(--surface-2);border-radius:999px;
+  padding:6px 11px;font-size:12px;font-weight:650;cursor:pointer;
+  color:var(--muted);min-height:34px;white-space:nowrap;
+}
+.slot-chip.is-on{background:var(--accent);border-color:var(--accent);color:#fff}
+
 /* ── Today strip ── */
 .today-strip{margin-top:26px}
 .strip-row{

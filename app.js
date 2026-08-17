@@ -39,6 +39,25 @@ const DEFAULT_SETTINGS = {
   ],
 };
 
+/* Daily meds carry which part of the day they belong to, so a twice-daily
+   medication can be ticked off morning and evening independently. */
+const MED_SLOTS = [
+  { id:'am',  label:'Morning' },
+  { id:'pm',  label:'Evening' },
+  { id:'any', label:'Anytime' },
+];
+
+/* settings.daily was originally a plain list of names. Accept both shapes so
+   an older saved copy keeps working. */
+function normalizeSettings(s) {
+  const out = Object.assign({}, DEFAULT_SETTINGS, s || {});
+  out.daily = (out.daily || []).map(m =>
+    typeof m === 'string'
+      ? { name: m, slots: [] }
+      : { name: m.name, slots: Array.isArray(m.slots) ? m.slots : [] });
+  return out;
+}
+
 const STOPWORDS = new Set(('a an the and with of on in for some my me it was were had have has ' +
   'plus w plain little bit lots lot bunch few couple half whole side small large medium big ' +
   'from at to about ate eat had made make cup cups slice slices piece pieces bowl plate glass ' +
@@ -87,7 +106,7 @@ const LS = {
 const state = {
   session:  LS.get('session', null),
   entries:  LS.get('entries', []),
-  settings: Object.assign({}, DEFAULT_SETTINGS, LS.get('settings', {})),
+  settings: normalizeSettings(LS.get('settings', {})),
   queue:    LS.get('queue', []),
   view:     'log',
   day:      startOfDay(new Date()).getTime(),
@@ -275,7 +294,7 @@ async function pullAll() {
     if (sres.ok) {
       const rows = await sres.json();
       if (rows[0]?.data) {
-        state.settings = Object.assign({}, DEFAULT_SETTINGS, rows[0].data);
+        state.settings = normalizeSettings(rows[0].data);
         LS.set('settings', state.settings);
       }
     }
@@ -335,7 +354,10 @@ function entryTitle(e) {
 function entryMeta(e) {
   const d = e.data || {};
   if (e.kind === 'food' && d.tags?.length) return d.tags.join(' · ');
-  if (e.kind === 'med'  && d.dose)         return d.dose;
+  if (e.kind === 'med') {
+    const slot = d.slot === 'am' ? 'morning' : d.slot === 'pm' ? 'evening' : '';
+    return [slot, d.dose].filter(Boolean).join(' · ');
+  }
   if (e.kind === 'symptom')                return `Severity ${d.severity}/5 — ${SEV_WORDS[d.severity - 1] || ''}`;
   return '';
 }
@@ -359,20 +381,40 @@ function renderLog() {
     st.append(b);
   }
 
-  // Medications
-  const mt = $('#med-tiles'); mt.innerHTML = '';
-  const takenToday = new Set(
-    state.entries.filter(e => e.kind === 'med' && dayKey(e.occurred_at) === dayKey(new Date()))
-                 .map(e => e.data.name)
-  );
-  for (const name of state.settings.daily) {
-    const b = el('button', 'tile' + (takenToday.has(name) ? ' tile-logged' : ''));
-    b.append(el('span', 'tile-emoji', takenToday.has(name) ? '✅' : '💊'),
-             el('span', 'tile-label', name),
-             el('span', 'tile-sub', takenToday.has(name) ? 'taken today' : 'daily'));
-    b.onclick = () => { addEntry('med', { name, sched: 'daily' }); toast(`${name} logged`); };
-    mt.append(b);
+  // Daily medications — a tickable checklist, grouped by time of day
+  const md = $('#med-daily'); md.innerHTML = '';
+  const todayMeds = state.entries.filter(e => e.kind === 'med' && dayKey(e.occurred_at) === dayKey(new Date()));
+  const doseFor = (name, slot) => todayMeds.find(e => e.data.name === name && (e.data.slot || 'any') === slot);
+
+  const groups = MED_SLOTS
+    .map(s => ({ ...s, meds: state.settings.daily.filter(m => s.id === 'any' ? !m.slots.length : m.slots.includes(s.id)) }))
+    .filter(g => g.meds.length);
+
+  for (const g of groups) {
+    if (groups.length > 1) md.append(el('div', 'check-group', g.label));
+    for (const m of g.meds) {
+      const done = doseFor(m.name, g.id);
+      const row = el('button', 'check-row' + (done ? ' is-done' : ''));
+      row.append(el('span', 'check-box', done ? '✓' : ''),
+                 el('span', 'check-name', m.name),
+                 el('span', 'check-time', done ? fmtTime(done.occurred_at) : ''));
+      row.onclick = () => {
+        if (done) {
+          if (confirm(`Uncheck ${m.name}?\n\nThis removes the ${fmtTime(done.occurred_at)} dose from your log.`)) {
+            deleteEntry(done.id);
+            toast(`${m.name} unchecked`);
+          }
+        } else {
+          addEntry('med', { name: m.name, sched: 'daily', slot: g.id });
+          toast(`${m.name} ✓`);
+        }
+      };
+      md.append(row);
+    }
   }
+
+  // As-needed medications stay as one-tap tiles
+  const mt = $('#med-tiles'); mt.innerHTML = '';
   for (const name of state.settings.prn) {
     const b = el('button', 'tile');
     b.append(el('span', 'tile-emoji', '💊'), el('span', 'tile-label', name), el('span', 'tile-sub', 'as needed'));
@@ -998,7 +1040,37 @@ function renderSettings() {
       }
     }
   };
-  list($('#set-daily'), state.settings.daily, 'daily');
+  // Daily meds get AM/PM toggles; leaving both off means "anytime".
+  const dn = $('#set-daily'); dn.innerHTML = '';
+  if (!state.settings.daily.length) {
+    dn.append(el('p', 'hint', 'Nothing added yet.'));
+  } else {
+    for (const m of state.settings.daily) {
+      const row = el('div', 'el-item');
+      row.append(el('span', 'el-name', m.name));
+      const tog = el('div', 'slot-toggles');
+      for (const s of MED_SLOTS.filter(s => s.id !== 'any')) {
+        const c = el('button', 'slot-chip' + (m.slots.includes(s.id) ? ' is-on' : ''), s.label);
+        c.title = `Take ${m.name} in the ${s.label.toLowerCase()}`;
+        c.onclick = () => {
+          m.slots = m.slots.includes(s.id) ? m.slots.filter(x => x !== s.id) : [...m.slots, s.id];
+          saveSettings(); render();
+        };
+        tog.append(c);
+      }
+      row.append(tog);
+      const x = el('button', 'el-x', '×');
+      x.setAttribute('aria-label', 'Remove ' + m.name);
+      x.onclick = () => {
+        state.settings.daily = state.settings.daily.filter(d => d.name !== m.name);
+        saveSettings(); render();
+      };
+      row.append(x);
+      dn.append(row);
+    }
+    dn.append(el('p', 'hint', 'Tap Morning and/or Evening. Both on means it appears twice, so you can tick each dose separately. Neither on means it just shows under “Anytime”.'));
+  }
+
   list($('#set-prn'),   state.settings.prn,   'prn');
   list($('#set-tags'),  state.settings.tags,  'tags');
 
@@ -1010,16 +1082,16 @@ function renderSettings() {
 
 function exportCsv() {
   const q = v => `"${String(v ?? '').replace(/"/g, '""')}"`;
-  const lines = ['date,time,type,item,severity_or_value,tags,dose'];
+  const lines = ['date,time,type,item,severity_or_value,tags,dose,slot'];
   const rows = [...state.entries].sort((a, b) => new Date(a.occurred_at) - new Date(b.occurred_at));
   for (const e of rows) {
     const t = new Date(e.occurred_at), d = e.data || {};
-    let item = '', val = '', tags = '', dose = '';
+    let item = '', val = '', tags = '', dose = '', slot = '';
     if (e.kind === 'food')        { item = d.text || ''; tags = (d.tags || []).join('; '); }
     else if (e.kind === 'symptom'){ item = d.type === 'other' ? (d.note || 'other') : (SYM[d.type]?.label || d.type); val = d.severity; }
-    else if (e.kind === 'med')    { item = d.name || ''; dose = d.dose || ''; }
+    else if (e.kind === 'med')    { item = d.name || ''; dose = d.dose || ''; slot = d.slot === 'am' ? 'morning' : d.slot === 'pm' ? 'evening' : ''; }
     else if (e.kind === 'context'){ item = CTX[d.type]?.label || d.type; val = d.value; }
-    lines.push([t.toLocaleDateString(), t.toLocaleTimeString(), e.kind, item, val, tags, dose].map(q).join(','));
+    lines.push([t.toLocaleDateString(), t.toLocaleTimeString(), e.kind, item, val, tags, dose, slot].map(q).join(','));
   }
   const blob = new Blob(['﻿' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8' });
   const url = URL.createObjectURL(blob);
@@ -1107,7 +1179,11 @@ function wire() {
     const commit = () => {
       const v = input.value.trim();
       if (!v) return;
-      if (!state.settings[key].includes(v)) state.settings[key].push(v);
+      if (key === 'daily') {
+        if (!state.settings.daily.some(d => d.name === v)) state.settings.daily.push({ name: v, slots: [] });
+      } else if (!state.settings[key].includes(v)) {
+        state.settings[key].push(v);
+      }
       input.value = ''; saveSettings(); render();
     };
     $(`[data-add="${which}"]`).onclick = commit;
