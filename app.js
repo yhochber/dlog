@@ -42,9 +42,10 @@ const DEFAULT_SETTINGS = {
 /* Daily meds carry which part of the day they belong to, so a twice-daily
    medication can be ticked off morning and evening independently. */
 const MED_SLOTS = [
-  { id:'am',  label:'Morning' },
-  { id:'pm',  label:'Evening' },
-  { id:'any', label:'Anytime' },
+  { id:'am',  label:'Morning', short:'AM', period:'day'  },
+  { id:'pm',  label:'Evening', short:'PM', period:'day'  },
+  { id:'wk',  label:'Weekly',  short:'Wk', period:'week' },
+  { id:'any', label:'Anytime', short:'--', period:'day'  },
 ];
 
 /* settings.daily was originally a plain list of names. Accept both shapes so
@@ -77,6 +78,7 @@ const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&':'&amp;','<':'&lt
 
 const fmtTime = d => new Date(d).toLocaleTimeString([], { hour:'numeric', minute:'2-digit' });
 const fmtDate = d => new Date(d).toLocaleDateString([], { weekday:'short', month:'short', day:'numeric' });
+const fmtDayTime = d => new Date(d).toLocaleString([], { weekday:'short', hour:'numeric', minute:'2-digit' });
 const dayKey  = d => { const x = new Date(d); return `${x.getFullYear()}-${String(x.getMonth()+1).padStart(2,'0')}-${String(x.getDate()).padStart(2,'0')}`; };
 const startOfDay = d => { const x = new Date(d); x.setHours(0,0,0,0); return x; };
 
@@ -355,7 +357,7 @@ function entryMeta(e) {
   const d = e.data || {};
   if (e.kind === 'food' && d.tags?.length) return d.tags.join(' · ');
   if (e.kind === 'med') {
-    const slot = d.slot === 'am' ? 'morning' : d.slot === 'pm' ? 'evening' : '';
+    const slot = d.slot === 'am' ? 'morning' : d.slot === 'pm' ? 'evening' : d.slot === 'wk' ? 'weekly' : '';
     return [slot, d.dose].filter(Boolean).join(' · ');
   }
   if (e.kind === 'symptom')                return `Severity ${d.severity}/5 — ${SEV_WORDS[d.severity - 1] || ''}`;
@@ -381,32 +383,49 @@ function renderLog() {
     st.append(b);
   }
 
-  // Daily medications — a tickable checklist, grouped by time of day
+  // Scheduled medications — a tickable checklist grouped by when each is due.
+  // Daily rows reset at midnight; weekly rows reset on Monday.
   const md = $('#med-daily'); md.innerHTML = '';
-  const todayMeds = state.entries.filter(e => e.kind === 'med' && dayKey(e.occurred_at) === dayKey(new Date()));
-  const doseFor = (name, slot) => todayMeds.find(e => e.data.name === name && (e.data.slot || 'any') === slot);
+  const allMeds = state.entries.filter(e => e.kind === 'med');   // already newest-first
+  const weekStart = (() => {
+    const d = startOfDay(new Date());
+    d.setDate(d.getDate() - ((d.getDay() + 6) % 7));
+    return d.getTime();
+  })();
+  const inPeriod = (e, period) => period === 'week'
+    ? new Date(e.occurred_at).getTime() >= weekStart
+    : dayKey(e.occurred_at) === dayKey(new Date());
+  const dosesOf = (name, slot) => allMeds.filter(e => e.data.name === name && (e.data.slot || 'any') === slot);
 
   const groups = MED_SLOTS
     .map(s => ({ ...s, meds: state.settings.daily.filter(m => s.id === 'any' ? !m.slots.length : m.slots.includes(s.id)) }))
     .filter(g => g.meds.length);
 
   for (const g of groups) {
-    if (groups.length > 1) md.append(el('div', 'check-group', g.label));
+    if (groups.length > 1) md.append(el('div', 'check-group', g.period === 'week' ? 'This week' : g.label));
     for (const m of g.meds) {
-      const done = doseFor(m.name, g.id);
+      const doses = dosesOf(m.name, g.id);
+      const done = doses.find(e => inPeriod(e, g.period));
+      let note = '';
+      if (done) {
+        note = g.period === 'week' ? fmtDayTime(done.occurred_at) : fmtTime(done.occurred_at);
+      } else if (g.period === 'week' && doses[0]) {
+        const days = Math.floor((Date.now() - new Date(doses[0].occurred_at).getTime()) / DAY);
+        note = days === 0 ? 'earlier today' : days === 1 ? 'yesterday' : days + 'd ago';
+      }
       const row = el('button', 'check-row' + (done ? ' is-done' : ''));
       row.append(el('span', 'check-box', done ? '✓' : ''),
                  el('span', 'check-name', m.name),
-                 el('span', 'check-time', done ? fmtTime(done.occurred_at) : ''));
+                 el('span', 'check-time', note));
       row.onclick = () => {
         if (done) {
-          if (confirm(`Uncheck ${m.name}?\n\nThis removes the ${fmtTime(done.occurred_at)} dose from your log.`)) {
+          if (confirm('Uncheck ' + m.name + '?\n\nThis removes the ' + fmtTime(done.occurred_at) + ' dose from your log.')) {
             deleteEntry(done.id);
-            toast(`${m.name} unchecked`);
+            toast(m.name + ' unchecked');
           }
         } else {
-          addEntry('med', { name: m.name, sched: 'daily', slot: g.id });
-          toast(`${m.name} ✓`);
+          addEntry('med', { name: m.name, sched: g.period === 'week' ? 'weekly' : 'daily', slot: g.id });
+          toast(m.name + ' ✓');
         }
       };
       md.append(row);
@@ -1050,10 +1069,13 @@ function renderSettings() {
       row.append(el('span', 'el-name', m.name));
       const tog = el('div', 'slot-toggles');
       for (const s of MED_SLOTS.filter(s => s.id !== 'any')) {
-        const c = el('button', 'slot-chip' + (m.slots.includes(s.id) ? ' is-on' : ''), s.label);
-        c.title = `Take ${m.name} in the ${s.label.toLowerCase()}`;
+        const c = el('button', 'slot-chip' + (m.slots.includes(s.id) ? ' is-on' : ''), s.short);
+        c.title = s.id === 'wk' ? m.name + ' once a week' : 'Take ' + m.name + ' in the ' + s.label.toLowerCase();
         c.onclick = () => {
-          m.slots = m.slots.includes(s.id) ? m.slots.filter(x => x !== s.id) : [...m.slots, s.id];
+          const on = m.slots.includes(s.id);
+          if (on) m.slots = m.slots.filter(x => x !== s.id);
+          else if (s.id === 'wk') m.slots = ['wk'];                       // weekly stands alone
+          else m.slots = [...m.slots.filter(x => x !== 'wk'), s.id];      // daily clears weekly
           saveSettings(); render();
         };
         tog.append(c);
@@ -1068,7 +1090,7 @@ function renderSettings() {
       row.append(x);
       dn.append(row);
     }
-    dn.append(el('p', 'hint', 'Tap Morning and/or Evening. Both on means it appears twice, so you can tick each dose separately. Neither on means it just shows under “Anytime”.'));
+    dn.append(el('p', 'hint', 'AM and PM can both be on — the medication then appears twice so each dose is ticked separately. Wk is for once-weekly medications like Wegovy; it resets every Monday and cannot combine with AM or PM. Nothing selected shows it under “Anytime”.'));
   }
 
   list($('#set-prn'),   state.settings.prn,   'prn');
@@ -1089,7 +1111,7 @@ function exportCsv() {
     let item = '', val = '', tags = '', dose = '', slot = '';
     if (e.kind === 'food')        { item = d.text || ''; tags = (d.tags || []).join('; '); }
     else if (e.kind === 'symptom'){ item = d.type === 'other' ? (d.note || 'other') : (SYM[d.type]?.label || d.type); val = d.severity; }
-    else if (e.kind === 'med')    { item = d.name || ''; dose = d.dose || ''; slot = d.slot === 'am' ? 'morning' : d.slot === 'pm' ? 'evening' : ''; }
+    else if (e.kind === 'med')    { item = d.name || ''; dose = d.dose || ''; slot = d.slot === 'am' ? 'morning' : d.slot === 'pm' ? 'evening' : d.slot === 'wk' ? 'weekly' : ''; }
     else if (e.kind === 'context'){ item = CTX[d.type]?.label || d.type; val = d.value; }
     lines.push([t.toLocaleDateString(), t.toLocaleTimeString(), e.kind, item, val, tags, dose, slot].map(q).join(','));
   }
