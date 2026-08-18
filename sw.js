@@ -2,7 +2,7 @@
    instantly and works with no signal. Data itself lives in
    localStorage plus Supabase; nothing here caches API responses. */
 
-const CACHE = 'gutlog-v1';
+const CACHE = 'gutlog-v2';
 const SHELL = [
   './',
   './index.html',

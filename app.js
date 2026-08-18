@@ -25,6 +25,8 @@ const CONTEXTS = [
 ];
 const CTX = Object.fromEntries(CONTEXTS.map(c => [c.id, c]));
 
+const APP_VERSION = 'build 2026-08-18b';
+
 const SEV_WORDS = ['barely','mild','moderate','strong','severe'];
 const SEV_COLORS = ['#8fbf9f','#c9c47a','#d8a45c','#c9744a','#b0413e'];
 
@@ -1098,6 +1100,7 @@ function renderSettings() {
 
   $('#acct-line').textContent = state.session?.email ? `Signed in as ${state.session.email}` : '';
   $('#entry-count').textContent = `${state.entries.length} entries stored`;
+  $('#app-version').textContent = APP_VERSION;
 }
 
 /* ── CSV export ─────────────────────────────────────────── */
